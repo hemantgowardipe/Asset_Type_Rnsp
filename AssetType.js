@@ -3020,12 +3020,11 @@
       const normalized = normalizeAnyValue(rawValue);
       if (column.isCurrency) {
         sortValues[column.key] = normalized;
-        const currencyDisplay = formatCurrencyFieldValue(normalized, getStoredCurrencyIcon());
-        mapped[column.key] = currencyDisplay == null || currencyDisplay === "" ? "-" : currencyDisplay;
+        mapped[column.key] = formatCurrencyFieldValue(normalized, getStoredCurrencyIcon());
         return;
       }
       sortValues[column.key] = column.isDate ? rawValue : normalized;
-      const displayValue = column.isDate
+      mapped[column.key] = column.isDate
         ? formatTableDateValue(normalized, {
             meta: getFieldMetaForColumnKey(column.key),
             dateOnly: column.key === "Created Date" || column.isDateOnly === true,
@@ -3033,8 +3032,6 @@
             forceUtc: true
           })
         : normalized;
-      // Null/undefined/empty display values render as "-" rather than a blank cell.
-      mapped[column.key] = displayValue == null || displayValue === "" ? "-" : displayValue;
     });
     mapped.__sortValues = sortValues;
     mapped.__recordKey = getRecordKeyFromRow(row);
@@ -8292,9 +8289,7 @@
     closeActiveCellEditor();
     clearError();
     const originalHtml = td.innerHTML;
-    const renderedText = td.textContent ? td.textContent.trim() : "";
-    // "-" is only the empty-value placeholder for display; treat it as blank when editing.
-    const currentText = renderedText === "-" ? "" : renderedText;
+    const currentText = td.textContent ? td.textContent.trim() : "";
     const { editor, labelToRaw } = await buildEditorForCell(
       columnKey,
       currentText,
