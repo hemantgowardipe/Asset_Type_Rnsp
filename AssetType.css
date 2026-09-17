@@ -373,14 +373,14 @@ button.status-card.status-card--active::after {
   transform: none;
 }
 
-.more-menu-wrap {
-  position: relative;
+#assetDetailsAppHost .table-panel__actions .more-menu-wrap {
+  position: relative !important;
 }
 
-.more-menu {
-  position: absolute;
-  right: 0;
-  top: calc(100% + 6px);
+#assetDetailsAppHost .table-panel__actions .more-menu-wrap .more-menu {
+  position: absolute !important;
+  right: 0 !important;
+  top: calc(100% + 6px) !important;
   min-width: 140px;
   width: max-content;
   background: #fff;
@@ -389,10 +389,10 @@ button.status-card.status-card--active::after {
   border-radius: 6px;
 
   overflow: hidden;
-  z-index: 3;
+  z-index: 3 !important;
 }
 
-.more-menu button {
+#assetDetailsAppHost .table-panel__actions .more-menu-wrap .more-menu button {
   width: 100%;
   border: 0;
   border-bottom: 1px solid #edf2f9;
@@ -402,7 +402,7 @@ button.status-card.status-card--active::after {
   cursor: pointer;
 }
 
-.more-menu button:last-child {
+#assetDetailsAppHost .table-panel__actions .more-menu-wrap .more-menu button:last-child {
   border-bottom: 0;
 }
 
