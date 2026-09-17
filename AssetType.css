@@ -1,0 +1,876 @@
+:root {
+  --bg: #FAFAFA;
+  --panel: #fff;
+  --text: #0f172a;
+  --muted: #64748b;
+  --border: #e2e8f0;
+  --primary: #2563eb;
+  --primary-soft: #eaf0ff;
+  --danger-soft: #fff1f2;
+  --danger: #be123c;
+  --portal-topbar-offset: 64px;
+  --page-top-tighten: 24px;
+}
+
+/* Scope box model + app font to this feature only â€” unscoped `*` was affecting portal/OOTB forms. */
+#assetDetailsAppHost,
+#assetDetailsAppHost * {
+  box-sizing: border-box;
+  font-family: "Poppins", Arial, Helvetica, sans-serif;
+}
+
+/* Keep Font Awesome glyph rendering intact for sidebar icons/arrow and for the
+   search bar's magnifier, which the `#assetDetailsAppHost *` font above would
+   otherwise re-point at Poppins. */
+:where(#assetDetailsAppHost) .qaf-navdock .fa,
+:where(#assetDetailsAppHost) .qaf-navdock .fa::before,
+:where(#assetDetailsAppHost) .qaf-search .fa,
+:where(#assetDetailsAppHost) .qaf-search .fa::before {
+  font-family: FontAwesome !important;
+}
+
+:where(#assetDetailsAppHost) .qaf-navdock b,
+:where(#assetDetailsAppHost) .qaf-navdock strong,
+:where(#assetDetailsAppHost) .asset-details-page b,
+:where(#assetDetailsAppHost) .asset-details-page strong {
+  font-weight: 400;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+  background: var(--bg) !important;
+  min-height: 100%;
+}
+
+html.asset-details-preload .qaf-navdock,
+html.asset-details-preload .asset-details-page {
+  visibility: hidden;
+}
+
+body {
+  margin: 0;
+  background: var(--bg) !important;
+  color: var(--text);
+  overflow-x: hidden;
+  min-height: 100vh;
+}
+
+#assetDetailsAppHost {
+  min-height: 100vh;
+  background: var(--bg) !important;
+}
+
+.asset-details-page {
+  width: 100%;
+  max-width: none;
+  margin: 0;
+  margin-top: calc( max(0px, calc(var(--portal-topbar-offset) - var(--page-top-tighten)))-5px);
+  padding: 2px 1px 24px;
+  padding-left: max(16px, env(safe-area-inset-left));
+  padding-right: max(16px, env(safe-area-inset-right));
+  padding-bottom: max(30px, env(safe-area-inset-bottom));
+  display: grid;
+  gap: 16px;
+}
+
+:where(#assetDetailsAppHost) .asset-details-page {
+  row-gap: 10px;
+}
+
+.asset-details-page > * {
+  min-width: 0;
+}
+
+/* Portal shells often assign vertical margins to `section`/`main`; keep top offset + 5px on main only (not navdock). */
+:where(#assetDetailsAppHost) main.asset-details-page {
+  margin-top: calc(0px + max(0px, calc(var(--portal-topbar-offset) - var(--page-top-tighten))));
+  margin-bottom: 0;
+}
+
+:where(#assetDetailsAppHost) .asset-details-page > header,
+:where(#assetDetailsAppHost) .asset-details-page > section {
+  margin: 0;
+}
+
+.panel,
+.status-card {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: none;
+}
+
+.page-header {
+  margin: 0;
+  padding: 0;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+/* Match Asset Inventory `.inventory-header` / `.inventory-header h1` spacing for the category title row. */
+:where(#assetDetailsAppHost) .page-header {
+  padding-top: 0;
+  gap: 16px;
+}
+
+:where(#assetDetailsAppHost) .page-header h1,
+:where(#assetDetailsAppHost) h1#pageTitle {
+  margin: 0;
+  letter-spacing: -0.02em;
+}
+
+:where(#assetDetailsAppHost) h1 {
+  line-height: 1.15;
+  font-weight: 400;
+  color: #0f172a;
+}
+
+:where(#assetDetailsAppHost) .asset-details-page label {
+  font-size: 12px;
+  color: #334155;
+  font-weight: 400;
+}
+
+/* `:not(.qaf-search__field)` keeps this page-level field styling away from the
+   search bar, so the reusable `.qaf-search` component in global.css owns that
+   input outright instead of being outranked by this selector. */
+:where(#assetDetailsAppHost) .asset-details-page input:not(.qaf-search__field),
+:where(#assetDetailsAppHost) .asset-details-page select {
+  min-height: 34px;
+  border-radius: 15px;
+  border: 1px solid transparent;
+  background: #fff;
+  color: #ffffff;
+  font-size: 12px;
+  padding: 0 12px;
+  box-shadow: none;
+}
+
+:where(#assetDetailsAppHost) .asset-details-page input:not(.qaf-search__field):focus,
+:where(#assetDetailsAppHost) .asset-details-page select:focus {
+  border-color: #ffffff;
+  outline: none;
+}
+
+.status-cards {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0;
+  border: 1px solid #c7ced8;
+  border-radius: 6px;
+  overflow: hidden;
+  padding-bottom: 0;
+}
+
+.status-cards__title {
+  grid-column: 1 / -1;
+  margin: 0;
+  padding: 10px 12px;
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1.25;
+  background: #f8fafc;
+  color: #0f172a !important;
+  letter-spacing: 0.01em;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px 6px 0 0;
+}
+
+.status-card {
+  min-width: 0;
+  padding: 8px 10px;
+  text-align: left;
+  cursor: pointer;
+}
+
+button.status-card {
+  position: relative;
+  width: 100%;
+  appearance: none;
+  -webkit-appearance: none;
+  border: 0;
+  border-right: 1px solid #d6dde7;
+  border-bottom: 1px solid #d6dde7;
+  background: var(--panel);
+  border-radius: 0;
+  overflow: hidden;
+}
+
+.status-cards > .status-card:nth-of-type(4n) {
+  border-right: 0;
+}
+
+button.status-card.status-card--active::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 3px;
+  background: var(--primary);
+  pointer-events: none;
+}
+
+.status-card__line {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  column-gap: 0;
+  font-size: 12px;
+  font-weight: 400;
+  color: #111827;
+  line-height: 1.2;
+}
+
+.status-card__count {
+  padding-left: 12px;
+  margin-left: 12px;
+  font-weight: 500;
+  justify-self: end;
+  min-width: 28px;
+  text-align: right;
+}
+
+.status-card__name {
+  min-width: 0;
+  justify-self: start;
+  text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.table-panel {
+  padding: 12px;
+  min-width: 0;
+}
+
+.table-panel__meta {
+  margin: 4px 0 10px;
+  color: var(--muted);
+  font-size: 14px;
+}
+
+.table-panel__top {
+  display: flex;
+  justify-content: flex-start;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+#assetDetailsAppHost .table-panel__toolbar .table-panel__top {
+  flex: 1 1 auto !important;
+  margin-right: 0 !important;
+  min-width: 0 !important;
+  order: 1 !important;
+}
+
+#assetDetailsAppHost .table-panel__toolbar .table-panel__meta {
+  margin: 0 !important;
+}
+
+#assetDetailsAppHost .table-panel__toolbar {
+  display: flex !important;
+  flex-wrap: nowrap !important;
+  align-items: center !important;
+  justify-content: flex-start !important;
+  gap: 8px !important;
+  width: 100% !important;
+  min-width: 0 !important;
+  margin-bottom: 2px !important;
+}
+
+/*
+ * Search bar: every visual property (height, border, radius, shadow, field and
+ * clear-button styling) comes from the reusable `.qaf-search` component in
+ * global.css. Only this page's toolbar geometry - how wide the bar is and where
+ * it sits in the toolbar - is declared here.
+ */
+#assetDetailsAppHost .table-panel__toolbar .qaf-search {
+  flex: 0 0 auto;
+  width: 360px;
+  min-width: 160px;
+  max-width: 360px;
+  margin-left: auto;
+  margin-right: 0;
+  order: 2;
+}
+
+/* This page's magnifier submits the search, so the glyph needs a <button> host.
+   The glyph itself is styled by `.qaf-search__icon` in global.css; only the
+   button chrome reset is page-local, since global.css has no button variant of
+   that icon. */
+#assetDetailsAppHost .qaf-search .adetail-search__submit {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  cursor: pointer;
+}
+
+/* Toolbar row placement only; the flex/alignment defaults come from
+   `.table-panel__actions` in global.css. */
+#assetDetailsAppHost .table-panel__toolbar .table-panel__actions {
+  gap: 8px;
+  flex: 0 0 auto;
+  flex-wrap: nowrap;
+  margin-left: 0;
+  order: 3;
+}
+
+/*
+ * CS_SETTING toolbar buttons - QafLibrary.applyCsSettingTheme + qaf-cs-theme-*.
+ * Height (30px) and corner radius come from `.qaf-btn` in global.css, which both
+ * buttons carry in their markup; only the toolbar-specific box/typography that
+ * `.qaf-btn` deliberately leaves to the page is declared here.
+ */
+#assetDetailsAppHost .table-panel__actions .qaf-cs-theme-btn {
+  padding: 0 12px;
+  font-size: 12px;
+  font-weight: 400;
+  letter-spacing: 0.01em;
+  box-shadow: none;
+  transition: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+}
+
+/* 22-1 / 22-2: keep themed button look; overlay only changes cursor on hover. */
+#assetDetailsAppHost .table-panel__actions #newAssetBtn.is-toolbar-restricted,
+#assetDetailsAppHost .table-panel__actions #moreBtn.is-toolbar-restricted {
+  position: relative;
+}
+
+#assetDetailsAppHost .table-panel__actions #newAssetBtn.is-toolbar-restricted::after,
+#assetDetailsAppHost .table-panel__actions #moreBtn.is-toolbar-restricted::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  cursor: not-allowed !important;
+  background: transparent;
+  border-radius: inherit;
+}
+
+#assetDetailsAppHost .table-panel__actions .qaf-cs-theme-btn--primary,
+#assetDetailsAppHost .table-panel__actions .qaf-cs-theme-btn--primary:hover,
+#assetDetailsAppHost .table-panel__actions .qaf-cs-theme-btn--primary:focus,
+#assetDetailsAppHost .table-panel__actions .qaf-cs-theme-btn--primary:active {
+  border: 1px solid var(--ButtonBackGroundColor, #0f172a);
+  transform: none;
+}
+
+.more-menu-wrap {
+  position: relative;
+}
+
+.more-menu {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 6px);
+  min-width: 140px;
+  width: max-content;
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+  border-radius: 6px;
+
+  overflow: hidden;
+  z-index: 3;
+}
+
+.more-menu button {
+  width: 100%;
+  border: 0;
+  border-bottom: 1px solid #edf2f9;
+  background: #fff;
+  text-align: left;
+  padding: 10px 12px;
+  cursor: pointer;
+}
+
+.more-menu button:last-child {
+  border-bottom: 0;
+}
+
+/*
+ * SECTION: Grid
+ * The grid's look - wrapper frame, table, header/body cells, sort affordance and
+ * row-action menu - is the shared one in global.css (`.table-wrap`, `table`,
+ * `th`/`td`, `.th-sort-icon`, `.row-actions*`). Nothing reusable is redeclared
+ * below; each rule that remains is a documented page-specific delta on top of
+ * those shared rules, which win by cascade order (global.css loads first).
+ */
+
+/* Delta: needs to shrink inside the flex panel, and takes the panel's own
+   corner token (--radius-sm) rather than the wrapper default (--radius-lg) so
+   its corners match the card it sits in. Frame, background and scrolling all
+   come from `.table-wrap` in global.css. */
+.table-wrap {
+  min-width: 0;
+  margin-top: var(--space-4);
+  border-radius: var(--radius-sm);
+}
+
+/*
+ * Scrollbars exist only while the pointer is over the grid.
+ *
+ * The bars are created and destroyed by toggling `overflow` rather than by fading
+ * a transparent thumb in and out: Chromium does not reliably repaint
+ * ::-webkit-scrollbar-thumb when the host element's :hover ends, which left the
+ * thumb painted after the pointer had gone. Flipping overflow removes the
+ * scrollbar box outright, so there is nothing left to repaint.
+ *
+ * Scroll position is preserved across the toggle - scrollLeft/scrollTop survive
+ * the switch to `hidden`, so leaving and re-entering the grid does not jump the
+ * user back to the first column. :focus-within keeps the bars available while
+ * keyboard focus is inside the grid, when there is no pointer at all.
+ */
+/* Delta: the grid is its own 480px-tall scroller, not a block that grows with
+   the row count. The fixed height is what makes #tableWrap emit scroll events,
+   which is what asset-details.js watches to page the next records in. Shared
+   `.table-wrap` in global.css caps neither height nor overflow-y, so both are
+   set here. */
+#assetDetailsAppHost .table-wrap.table-wrap--scrollable {
+  height: 480px;
+  max-height: 480px;
+  overflow: hidden;
+}
+
+#assetDetailsAppHost .table-wrap.table-wrap--scrollable:hover,
+#assetDetailsAppHost .table-wrap.table-wrap--scrollable:focus-within {
+  overflow: auto;
+}
+
+/*
+ * Sizing/colour of the bars that appear on hover. The two branches are mutually
+ * exclusive on purpose: Chromium ignores every ::-webkit-scrollbar rule as soon
+ * as `scrollbar-color` is set on the element, which would silently give the bar
+ * the browser's own "thin" size (12px) instead of the 10px asked for here. So the
+ * webkit branch runs alone where it is supported, and the standard properties are
+ * the Firefox-only fallback (Firefox has no way to set an exact bar size -
+ * `thin` is as close as it gets).
+ */
+@supports selector(::-webkit-scrollbar) {
+  #assetDetailsAppHost .table-wrap::-webkit-scrollbar {
+    height: 10px;
+    width: 10px;
+  }
+
+  #assetDetailsAppHost .table-wrap::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  #assetDetailsAppHost .table-wrap::-webkit-scrollbar-thumb {
+    background-color: #b8b8b8;
+    border-radius: 5px;
+  }
+}
+
+@supports not selector(::-webkit-scrollbar) {
+  #assetDetailsAppHost .table-wrap {
+    scrollbar-width: thin;
+    scrollbar-color: #b8b8b8 transparent;
+  }
+}
+
+/*
+ * `table` / `th` / `td` are the one part of the shared grid that global.css
+ * declares on ELEMENT selectors (specificity 0,0,1), so the portal's own table
+ * stylesheet outranks them and the grid picks up portal padding/typography
+ * instead. These three rules restate them at page weight to win that fight -
+ * but every value is read from global.css's tokens rather than copied, so the
+ * design system stays the single source of truth. Everything else in the grid
+ * (.table-wrap, .row-actions*, .th-sort-icon) is class-based in global.css,
+ * already outranks the portal, and is inherited untouched below.
+ */
+:where(#assetDetailsAppHost) table {
+  border-collapse: collapse;
+  background: var(--color-bg-surface);
+}
+
+/* GridTable sizes this grid: it sets table-layout:fixed, an inline pixel width
+   from the summed <colgroup> widths, and min-width:0. Only the "still fill the
+   panel when the columns total less than its width" part is the page's call, and
+   it needs this weight to clear the engine's own !important min-width. */
+#assetDetailsAppHost #assetTable {
+  min-width: 100% !important;
+}
+
+:where(#assetDetailsAppHost) th,
+:where(#assetDetailsAppHost) td {
+  border-bottom: 1px solid var(--color-border-default);
+  padding: var(--space-4) var(--space-4);
+  text-align: left;
+  font-size: var(--font-size-md);
+  /* Mirrors the shared `th`/`td` line-height in global.css, which has no token
+     of its own; restated so the portal cannot stretch the row height. */
+  line-height: 1.35;
+  vertical-align: middle;
+  /* Page-specific: single-line cells that ellipsize when a column is narrowed,
+     since this grid is column-resizable with a fixed layout. Spacing and
+     typography above are the shared ones. */
+  white-space: nowrap !important;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+#assetDetailsAppHost th:not(.row-actions-head),
+#assetDetailsAppHost td:not(.row-actions) {
+  min-width: 0 !important;
+}
+
+/* `.row-actions-head` / `.row-actions` (28px action column) come from global.css
+   as-is - this page needs no delta for them. */
+
+/* Delta: keeps the toggle's tap target at 26px and strips the UA button padding
+   global.css leaves alone. */
+:where(#assetDetailsAppHost) .row-actions__toggle {
+  min-height: 26px;
+  padding: 0;
+}
+
+/* Delta: portal pages load a competing icon font, so pin the glyph font. Size
+   comes from global.css. */
+:where(#assetDetailsAppHost) .row-actions__toggle .fa {
+  font-family: FontAwesome !important;
+}
+
+/* Delta: seeds the fixed-position menu at the origin before asset-details.js
+   measures the row and writes its left/top. */
+:where(#assetDetailsAppHost) .row-actions__menu {
+  left: 0;
+  top: 0;
+}
+
+:where(#assetDetailsAppHost) .row-actions__menu.row-actions__menu--up {
+  top: auto;
+  bottom: calc(100% - 8px);
+}
+
+:where(#assetDetailsAppHost) .row-actions__menu.row-actions__menu--align-right {
+  left: auto;
+  right: 4px;
+}
+
+:where(#assetDetailsAppHost) .row-actions__menu[hidden] {
+  display: none;
+}
+
+/* `.row-actions__item` and its hover state come from global.css unchanged. */
+
+/* Delta: fixed-width, centered leading glyph so the labels line up, plus the
+   glyph-font pin. */
+:where(#assetDetailsAppHost) .row-actions__item .fa {
+  width: 12px;
+  min-width: 12px;
+  text-align: center;
+  font-family: FontAwesome !important;
+}
+
+/* Colour and the default no-underline come from the `.link` / `.serial-link`
+   group in global.css. Only the hover affordance is page-specific. */
+:where(#assetDetailsAppHost) .serial-link:hover {
+  text-decoration: underline;
+}
+
+td.is-inline-editing {
+  padding: 6px 8px;
+}
+
+.inline-cell-input {
+  width: 100%;
+  min-height: 30px;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  padding: 4px 8px;
+  font-size: 12px;
+  background: #fff;
+}
+
+/* Sticky header - same reasoning as the `th`/`td` rule above: element-level in
+   global.css, so restated here at page weight with global's tokens. Header
+   padding is the shared one too; the room for the sort arrow comes from
+   global.css's own `th.is-sortable`. The last two declarations are the only
+   page-specific part: the header must never clip its absolutely-positioned sort
+   arrow or column resizer. */
+:where(#assetDetailsAppHost) th {
+  position: sticky;
+  top: 0;
+  z-index: var(--z-sticky);
+  background: var(--color-bg-subtle);
+  color: var(--color-text-secondary);
+  font-weight: var(--font-weight-regular);
+  overflow: visible;
+  text-overflow: clip;
+}
+
+/*
+ * The header label and the sort glyph come from global.css's "Grid Table
+ * Runtime" section. Two rules were removed from here:
+ *
+ *  - `.th-label { overflow: visible; text-overflow: clip; max-width: none }`,
+ *    which is what let a header longer than its column paint straight through
+ *    the band the sort arrow sits in, so the arrow rendered on top of the last
+ *    word. The label now reserves that band and ellipsizes before reaching it.
+ *  - `.th-sort-icon { right: 12px; ... }`, whose values the shared component
+ *    already declares.
+ *
+ * Both were also unscoped element/class selectors in a page stylesheet, so they
+ * applied to every table on the page, not only this one.
+ */
+
+:where(#assetDetailsAppHost) th.is-sortable {
+  cursor: pointer;
+}
+
+/* The resize handle, its pipe separator, the vertical drag line and the
+   col-resize cursor all come from GridTable in library.js. Only the
+   text-selection guard is added here, which those runtime styles omit. */
+body.is-column-resizing {
+  user-select: none;
+}
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  padding: 4px 9px;
+  background: #f3f4f6;
+  color: #374151;
+  font-size: 12px;
+  font-weight: 400;
+  border: 1px solid #6b7280;
+}
+
+.badge--allocated {
+  background: #eaf2ff;
+  color: #1d4ed8;
+  border-color: #60a5fa;
+}
+
+.badge--in-store {
+  background: #ecfdf3;
+  color: #166534;
+  border-color: #4ade80;
+}
+
+.badge--in-repair {
+  background: #fff8e6;
+  color: #92400e;
+  border-color: #eab308;
+}
+
+.badge--other {
+  background: #ecfeff;
+  color: #155e75;
+  border-color: #0891b2;
+}
+
+.badge--in-repair-vendor {
+  background: #ede9fe;
+  color: #5b21b6;
+  border-color: #7c3aed;
+}
+
+.badge--send-for-disposal {
+  background: #fff1f2;
+  color: #9f1239;
+  border-color: #fb7185;
+}
+
+.badge--disposed {
+  background: #f1f5f9;
+  color: #334155;
+  border-color: #64748b;
+}
+
+.badge--unknown {
+  background: #f8fafc;
+  color: #475569;
+  border-color: #64748b;
+}
+
+.table-panel__footer {
+  margin-top: 10px;
+  min-height: 1.25rem;
+  display: flex;
+  justify-content: flex-start;
+  align-items: center;
+  gap: 8px;
+}
+
+.load-more-sentinel {
+  height: 1px;
+  width: 100%;
+  flex-shrink: 0;
+  pointer-events: none;
+}
+
+.load-more-hint {
+  font-size: 12px;
+  color: var(--muted);
+  font-weight: 400;
+}
+
+.error {
+  padding: 12px;
+  border-color: #fecdd3;
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
+@media (max-width: 900px) {
+  .asset-details-page {
+    padding: 18px 20px 24px;
+    padding-left: max(20px, env(safe-area-inset-left));
+    padding-right: max(20px, env(safe-area-inset-right));
+  }
+}
+
+@media (max-width: 640px) {
+  .asset-details-page {
+    padding: 14px 14px 20px;
+    padding-left: max(14px, env(safe-area-inset-left));
+    padding-right: max(14px, env(safe-area-inset-right));
+  }
+
+  :where(#assetDetailsAppHost) .asset-details-page select {
+    min-height: 44px;
+    font-size: 14px;
+  }
+
+  /* Tighter cells on small screens, still expressed in global.css's tokens. */
+  :where(#assetDetailsAppHost) th,
+  :where(#assetDetailsAppHost) td {
+    padding: var(--space-1) var(--space-2);
+    font-size: var(--font-size-sm);
+  }
+
+  #assetDetailsAppHost th.asset-name-col,
+  #assetDetailsAppHost td.asset-name-col {
+    padding-top: 18px !important;
+  }
+
+  .table-panel__top {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  #assetDetailsAppHost .table-panel__toolbar .table-panel__top {
+    flex: 1 1 100% !important;
+    margin-right: 0 !important;
+    order: 1 !important;
+  }
+
+  #assetDetailsAppHost .table-panel__toolbar {
+    flex-wrap: wrap !important;
+    gap: 10px !important;
+    justify-content: flex-end !important;
+  }
+
+  /* Layout only; the bar's appearance still comes from `.qaf-search`. */
+  #assetDetailsAppHost .table-panel__toolbar .qaf-search {
+    flex: 1 1 100%;
+    width: 100%;
+    min-width: 0;
+    max-width: none;
+    margin-left: 0;
+    order: 2;
+  }
+
+  #assetDetailsAppHost .table-panel__toolbar .table-panel__actions {
+    flex: 1 1 100% !important;
+    justify-content: flex-end !important;
+    margin-left: 0 !important;
+    order: 3 !important;
+  }
+
+}
+
+/* `*:not(a)` keeps hyperlinks out of this override, so anchors take their colour
+   from the `.link` / `.serial-link` group in global.css instead of needing a
+   hardcoded exemption here. */
+:where(#assetDetailsAppHost) .asset-details-page,
+:where(#assetDetailsAppHost) .asset-details-page *:not(a) {
+  color: #000 !important;
+}
+
+/* CS_SETTING dynamic theme: color and background-color only (see global.css qaf-cs-theme-*). */
+#assetDetailsAppHost .table-panel__actions .qaf-cs-theme-btn--primary,
+#assetDetailsAppHost .table-panel__actions .qaf-cs-theme-btn--primary:hover,
+#assetDetailsAppHost .table-panel__actions .qaf-cs-theme-btn--primary:focus,
+#assetDetailsAppHost .table-panel__actions .qaf-cs-theme-btn--primary:active {
+  color: var(--ButtonTextColor, #ffffff) !important;
+  background-color: var(--ButtonBackGroundColor, #000000) !important;
+}
+
+#assetDetailsAppHost .table-panel__actions .qaf-cs-theme-btn .fa,
+#assetDetailsAppHost .table-panel__actions .qaf-cs-theme-btn i {
+  color: inherit;
+}
+
+/*
+ * Exempt the search bar's glyphs from the page-wide `color: #000 !important`
+ * above, so the magnifier and clear "x" keep the muted tone that `.qaf-search`
+ * in global.css defines for them (this only lifts the override - it does not
+ * restyle the component).
+ */
+:where(#assetDetailsAppHost) .asset-details-page .qaf-search__icon,
+:where(#assetDetailsAppHost) .asset-details-page .qaf-search__clear {
+  color: var(--color-text-muted) !important;
+}
+
+:where(#assetDetailsAppHost) .asset-details-page .adetail-search__submit:hover .qaf-search__icon,
+:where(#assetDetailsAppHost) .asset-details-page .qaf-search__clear:hover {
+  color: var(--color-text-primary) !important;
+}
+
+.badge {
+  color: #374151 !important;
+}
+
+.badge--allocated {
+  color: #1d4ed8 !important;
+}
+
+.badge--in-store {
+  color: #166534 !important;
+}
+
+.badge--in-repair {
+  color: #92400e !important;
+}
+
+.badge--other {
+  color: #155e75 !important;
+}
+
+.badge--in-repair-vendor {
+  color: #5b21b6 !important;
+}
+
+.badge--send-for-disposal {
+  color: #9f1239 !important;
+}
+
+.badge--disposed {
+  color: #334155 !important;
+}
+
+.badge--unknown {
+  color: #475569 !important;
+}

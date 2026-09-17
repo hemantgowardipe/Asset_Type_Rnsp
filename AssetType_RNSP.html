@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en" class="asset-details-preload">
+
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Asset Details</title>
+    <link rel="stylesheet" href="https://appai.quickappflow.com/Attachment/downloadfile?fileUrl=Pages1%2FAssetType_c125f0d1-047c-41b9-8752-510e66540ce7.css">
+  <link rel="stylesheet" href="https://appai.quickappflow.com/Attachment/downloadfile?fileUrl=Pages1%2Fglobal_eb176c2d-d0fe-4ec4-a0b6-5229ec450ae4.css" />
+</head>
+
+<body>
+  <div id="assetDetailsAppHost">
+    <nav class="qaf-navdock" aria-label="Application menu"> <button id="qafNavToggle" type="button"
+        class="qaf-navdock__arrow-indicator" aria-label="Pin or expand sidebar" aria-expanded="false"> <i
+          class="fa fa-angle-right" aria-hidden="true"></i> </button>
+      <div id="qafNavdockList" class="qaf-navdock__list"></div>
+    </nav>
+    <main class="asset-details-page qaf-navdock-layout-shift" aria-busy="true">
+      <header class="page-header">
+        <h1 id="pageTitle">Asset Details</h1>
+      </header>
+      <section class="summary-section" aria-labelledby="summaryHeading">
+        <div id="statusCards" class="status-cards" role="group" aria-label="Asset item status"></div>
+      </section>
+      <section class="panel table-panel">
+        <div class="table-panel__toolbar">
+          <div class="table-panel__top">
+            <div id="resultMeta" class="table-panel__meta" hidden> <strong id="resultCount">0</strong> <span
+                id="resultScope">records</span> </div>
+          </div>
+          <!-- Search bar: .qaf-search* comes from global.css. adetail-search-wrap is a
+               behavior hook only (asset-details.js), it carries no styling. -->
+          <div class="qaf-search adetail-search-wrap" role="search"> <button id="assetSearchSubmit"
+              class="adetail-search__submit" type="button" aria-label="Search"> <i
+                class="fa fa-search qaf-search__icon" aria-hidden="true"></i> </button> <input id="assetSearchInput"
+              class="qaf-search__field" type="search"
+              placeholder="Search..." autocomplete="off" /> <button id="assetSearchClear" class="qaf-search__clear"
+              type="button" aria-label="Clear search" hidden> × </button> </div>
+          <div class="table-panel__actions"> <button id="newAssetBtn" type="button"
+              class="qaf-btn qaf-cs-theme-btn qaf-cs-theme-btn--primary">+ New</button>
+            <div class="more-menu-wrap"> <button id="moreBtn" type="button"
+                class="qaf-btn qaf-cs-theme-btn qaf-cs-theme-btn--primary" aria-expanded="false">More</button>
+              <div id="moreMenu" class="more-menu" hidden> <button id="moreImportBtn" type="button">Import</button>
+                <button id="moreExportBtn" type="button">Export</button> </div>
+            </div>
+          </div>
+        </div>
+        <div id="tableWrap" class="table-wrap qaf-scrollbar-10 table-wrap--scrollable">
+          <table id="assetTable" aria-label="Assets list">
+            <colgroup id="tableColGroup"></colgroup>
+            <thead>
+              <tr id="tableHeadRow"></tr>
+            </thead>
+            <tbody id="tableBody"></tbody>
+          </table>
+          <div id="loadMoreSentinel" class="load-more-sentinel" aria-hidden="true"></div>
+        </div>
+        <div class="table-panel__footer"> <span id="loadMoreHint" class="load-more-hint" hidden></span> </div>
+      </section>
+      <section id="errorBox" class="panel error" hidden></section>
+    </main>
+  </div>
+
+    <script src="https://appai.quickappflow.com/Attachment/downloadfile?fileUrl=Pages1%2FAsset_nav_dock_b53e68dd-8693-4399-b175-42540739713f.js"></script>
+    <script src="https://appai.quickappflow.com/Attachment/downloadfile?fileUrl=Pages1%2Fbundle_1dd7a471-386e-4c43-adae-95013da0c4f5.js"></script>
+    <script src="https://appai.quickappflow.com/Attachment/downloadfile?fileUrl=Pages1%2Flibrary_0b91d314-c788-4996-98c7-40fe34ad8d1f.js"></script>
+    <script src="https://appai.quickappflow.com/Attachment/downloadfile?fileUrl=Pages1%2FAssetType_0b982c88-c271-4b22-8d25-5a20689f0f5b.js"></script>
+</body>
+
+</html>
