@@ -8,6 +8,8 @@
   const MAX_STATUS_FETCH_PAGE_SIZE = 10000;
   /** Asset list is fetched via `api/rnsp` using this stored-query name; CategoryFilter/TypeFilter/PageNumber/PageSize come from route + pagination state. */
   const ASSET_LIST_RNSP_NAME = "ASSET_TYPE_EASSET_MASTER";
+  /** Item-status summary counts (the "Summary" cards) come from this `api/rnsp` stored-query name instead of the legacy `api/Sroa` endpoint. */
+  const ITEM_STATUS_RNSP_NAME = "ASSET_TYPE_ITEMSTATUS_FILTER";
 
   function getAppApiBase() {
     try {
@@ -2874,18 +2876,71 @@
       .join("");
   }
 
+  /** True when `arr` already looks like the flat `[{ItemStatus, TotalNumber}, ...]` summary shape. */
+  function looksLikeStatusSummaryArray(value) {
+    return (
+      Array.isArray(value) &&
+      value.length > 0 &&
+      value.every(
+        (item) =>
+          item &&
+          typeof item === "object" &&
+          ("ItemStatus" in item || "itemstatus" in item || "TotalNumber" in item || "totalnumber" in item)
+      )
+    );
+  }
+
+  /** Case-insensitive lookup of a `StatusWithNumber`-style key on an object. */
+  function readStatusWithNumberKey(obj) {
+    if (!obj || typeof obj !== "object") return undefined;
+    if (Object.prototype.hasOwnProperty.call(obj, "StatusWithNumber")) return obj.StatusWithNumber;
+    const matchKey = Object.keys(obj).find((k) => normalizeLooseFieldName(k) === "statuswithnumber");
+    return matchKey ? obj[matchKey] : undefined;
+  }
+
+  /**
+   * The item-status summary now comes from `api/rnsp` (`ASSET_TYPE_ITEMSTATUS_FILTER`) as a flat
+   * array of `{ItemStatus, TotalNumber}` rows, handled directly by `looksLikeStatusSummaryArray`
+   * below. This unwrapping is kept for resilience against a nested/legacy shape where a
+   * `StatusWithNumber` collection comes back JSON-encoded as a *string* rather than a real array
+   * (a SQL Server `FOR JSON` quirk) so a differently-shaped response still surfaces its data
+   * instead of leaving the summary cards empty.
+   */
+  function coerceStatusWithNumberValue(value) {
+    if (Array.isArray(value)) return value;
+    if (typeof value === "string" && value.trim()) {
+      const parsed = tryParseJson(value.trim());
+      if (Array.isArray(parsed)) return parsed;
+    }
+    return null;
+  }
+
   function extractStatusWithNumber(payload) {
+    if (payload == null) return [];
+    if (typeof payload === "string") {
+      const parsed = tryParseJson(payload.trim());
+      return parsed != null ? extractStatusWithNumber(parsed) : [];
+    }
+    if (looksLikeStatusSummaryArray(payload)) return payload;
     if (Array.isArray(payload)) {
       for (let i = 0; i < payload.length; i += 1) {
-        const row = payload[i];
-        if (row && Array.isArray(row.StatusWithNumber)) return row.StatusWithNumber;
+        const candidate = coerceStatusWithNumberValue(readStatusWithNumberKey(payload[i]));
+        if (candidate) return candidate;
+      }
+      for (let i = 0; i < payload.length; i += 1) {
+        const nested = extractStatusWithNumber(payload[i]);
+        if (nested.length) return nested;
       }
       return [];
     }
-    if (payload && typeof payload === "object") {
-      if (Array.isArray(payload.StatusWithNumber)) return payload.StatusWithNumber;
+    if (typeof payload === "object") {
+      const direct = coerceStatusWithNumberValue(readStatusWithNumberKey(payload));
+      if (direct) return direct;
       const rows = normalizeRecords(payload);
-      if (rows[0] && Array.isArray(rows[0].StatusWithNumber)) return rows[0].StatusWithNumber;
+      for (let i = 0; i < rows.length; i += 1) {
+        const candidate = coerceStatusWithNumberValue(readStatusWithNumberKey(rows[i]));
+        if (candidate) return candidate;
+      }
     }
     return [];
   }
@@ -7256,15 +7311,15 @@
     throw lastError || new Error("Unable to open import form.");
   }
 
-  function buildStatusUrl(categoryId, typeId, typeLabel) {
-    const typeParam =
-      String(typeLabel || "").trim() || String(typeId || "").trim();
-    const params = new URLSearchParams({
-      type: typeParam,
-      Category: categoryId,
-      amtype: "2"
-    });
-    return `${getAppApiBase()}/api/Sroa?${params.toString()}`;
+  /** Payload for `api/rnsp`'s item-status-count workflow; TypeFilter/CategoryFilter mirror the route's selected Type/Category GUIDs. */
+  function buildItemStatusRnspPayload() {
+    return {
+      Name: ITEM_STATUS_RNSP_NAME,
+      Args: {
+        TypeFilter: String(state.typeId || "").trim(),
+        CategoryFilter: String(state.categoryId || "").trim()
+      }
+    };
   }
 
   function categoryMatches(row) {
@@ -7714,13 +7769,15 @@
     };
   }
 
-  /** Payload for `api/rnsp`; CategoryFilter/TypeFilter come from the route (category/type query params), PageNumber/PageSize from pagination state (page size defaults to the route's `count` param, see getAssetListFetchPageSize). */
-  function buildAssetListRnspPayload(apiPage, apiPageSize) {
+  /** Payload for `api/rnsp`; CategoryFilter/TypeFilter come from the route (category/type query params), ItemStatusFilter from the selected status card ("All" for GrossTotal/no selection - the default "total assets" view), PageNumber/PageSize from pagination state (page size defaults to the route's `count` param, see getAssetListFetchPageSize). */
+  function buildAssetListRnspPayload(apiPage, apiPageSize, effectiveStatus) {
+    const itemStatusFilter = String(effectiveStatus || "").trim();
     return {
       Name: ASSET_LIST_RNSP_NAME,
       Args: {
         CategoryFilter: String(state.categoryId || "").trim(),
         TypeFilter: String(state.typeId || "").trim(),
+        ItemStatusFilter: itemStatusFilter || "All",
         PageNumber: String(apiPage),
         PageSize: String(apiPageSize)
       }
@@ -7739,7 +7796,7 @@
   ) {
     const payload = await postJson(
       `${getAppApiBase()}/api/rnsp`,
-      buildAssetListRnspPayload(apiPage, apiPageSize),
+      buildAssetListRnspPayload(apiPage, apiPageSize, effectiveStatus),
       signal
     );
 
@@ -7853,21 +7910,25 @@
       renderTableHead();
       renderTable();
 
-      // Sroa: summary counts for the category. Not needed when only the table status filter
-      // changes ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬ ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬ ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬ ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬ ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â those totals are unchanged; skip to avoid an extra API call per click (doc 2.2.5).
+      // Item-status summary counts (Summary cards) via api/rnsp. Not needed when only the
+      // table status filter changes - those totals are unchanged; skip to avoid an extra API call per click.
       const effectiveStatus = state.selectedStatus === "GrossTotal" ? "" : state.selectedStatus;
       let firstPage;
       if (skipSroa) {
         firstPage = await findWorkingAssetQueryAndFetchPage(signal, effectiveStatus, assetFetchOptions);
         if (loadSessionVersion !== state.requestVersion) return;
       } else {
-        const [statusPayload, fp] = await Promise.all([
-          fetchJson(buildStatusUrl(state.categoryId, state.typeId, state.typeLabel), signal),
+        const [statusResult, fp] = await Promise.allSettled([
+          postJson(`${getAppApiBase()}/api/rnsp`, buildItemStatusRnspPayload(), signal),
           findWorkingAssetQueryAndFetchPage(signal, effectiveStatus, assetFetchOptions)
         ]);
-        firstPage = fp;
+        if (fp.status === "rejected") throw fp.reason;
+        firstPage = fp.value;
         if (loadSessionVersion !== state.requestVersion) return;
-        state.statusSummary = normalizeStatusSummary(extractStatusWithNumber(statusPayload));
+        state.statusSummary =
+          statusResult.status === "fulfilled"
+            ? normalizeStatusSummary(extractStatusWithNumber(statusResult.value))
+            : [];
       }
 
       if (loadSessionVersion !== state.requestVersion) return;
@@ -7912,7 +7973,7 @@
 
   /**
    * Post-save refresh ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â same pattern as inventory.js loadAndRender(true).
-   * Reloads Sroa, EAsset_Master (api/rnsp), and QAF_Users, then updates the UI.
+   * Reloads the item-status summary, EAsset_Master (both via api/rnsp), and QAF_Users, then updates the UI.
    */
   function loadDataAfterSave() {
     if (!isAssetDetailsRuntimeContext()) return;
@@ -8516,6 +8577,8 @@
       const wrap = ui.assetSearchInput?.closest(".adetail-search-wrap");
       if (wrap) wrap.classList.remove("has-value");
       if (ui.assetSearchClear) ui.assetSearchClear.hidden = true;
+      // Item-status filter is scoped to the selected Type/Category; a new selection starts unfiltered.
+      state.selectedStatus = "";
     }
     return routeChanged;
   }
@@ -8620,8 +8683,8 @@
     // URL before navigation. Previously this flag was only consumed in
     // init(), but init() is not called on pageshow/visibilitychange when
     // pageInitialized is already true, so post-SaveRecord navigations
-    // never triggered the refresh APIs (GetRecordsForFields, Sroa,
-    // QAF_Users). The Delete flow works without this because it uses a
+    // never triggered the refresh APIs (api/rnsp for the asset list and
+    // item-status summary, QAF_Users). The Delete flow works without this because it uses a
     // QafPageService callback and never navigates away from the page.
     const shouldRefreshOnReturn = !isTabFocus && consumeRefreshOnReturnFlag();
     if (shouldRefreshOnReturn) {
