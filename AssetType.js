@@ -464,12 +464,9 @@
     objectFieldMetaById: null,
     objectFieldMetaByInternalName: null,
     objectFieldMetaByDisplayName: null,
-    lookupOptionsCache: {},
     columnDefs: [],
     masterObjectId: "",
     masterObjectRow: null,
-    categoryPrefillRows: null,
-    typePrefillRows: null,
     rawRowsByRecordKey: {},
     activeEditCell: null,
     activeRowMenuRecordKey: null,
@@ -542,8 +539,6 @@
   /** Used to ignore spurious "route changed" / cross-tab refresh flags while the URL is unchanged. */
   let lastCompletedDataLoadLocation = "";
   let masterObjectFetchPromise = null;
-  let categoryPrefillRowsPromise = null;
-  let typePrefillRowsPromise = null;
 
   const ui = {
     main: null,
@@ -2338,52 +2333,38 @@
     });
   }
 
-  function parseQafLookupMeta(value) {
-    const text = String(value || "").trim();
-    if (!text) return { id: "", name: "" };
-    const split = text.split(";#");
-    return {
-      id: String(split[0] || "").trim(),
-      name: String(split[1] || "").trim()
-    };
-  }
-
-  async function fetchLookupOptionsForMeta(meta, signal) {
+  /**
+   * Lookup dropdown options (Category, Type, or any other lookup-type column) for inline cell
+   * editing. Previously fetched fresh via `api/GetRecordsForFields` against the lookup's target
+   * object (e.g. EAsset_Category/EAsset_Type) with pageSize=100000. That's no longer needed: the
+   * asset rows already fetched via `api/rnsp` (state.rawRowsByRecordKey) carry each lookup
+   * field's `"GUID;#Label"` value directly, so the distinct options are derived from data already
+   * in memory - no extra network call. This only surfaces values that appear on at least one
+   * already-loaded asset (rather than every value that has ever existed for that lookup), which
+   * matches what's actually addressable/relevant on this Category+Type-scoped asset list.
+   */
+  function fetchLookupOptionsForMeta(meta) {
     if (!meta || !isLookupField(meta)) return [];
-    const lookupObject = parseQafLookupMeta(meta.lookupObject);
-    const lookupLabelField = parseQafLookupMeta(meta.lookupObjectField1);
-    const objectName = lookupObject.name;
-    const labelField = lookupLabelField.name || "Name";
-    if (!objectName) return [];
-    const cacheKey = `${objectName}|${labelField}`;
-    if (Array.isArray(state.lookupOptionsCache[cacheKey])) {
-      return state.lookupOptionsCache[cacheKey];
-    }
-    const params = new URLSearchParams({
-      objectName,
-      fieldList: `RecordID,${labelField}`,
-      orderBy: "",
-      whereClause: "",
-      pageSize: "100000",
-      pageNumber: "1",
-      isAscending: "true"
+    const internalName = String(meta.internalName || "").trim();
+    if (!internalName) return [];
+    const rawRows = Object.values(state.rawRowsByRecordKey || {});
+    const seen = new Map();
+    rawRows.forEach((row) => {
+      const merged = mergeRecordFieldValuesIntoRow(row);
+      const raw = merged ? merged[internalName] : undefined;
+      if (raw == null) return;
+      const text = String(raw).trim();
+      if (!text) return;
+      const sepIndex = text.indexOf(";#");
+      if (sepIndex === -1) return;
+      const id = text.slice(0, sepIndex).trim();
+      const label = text.slice(sepIndex + 2).trim();
+      if (!id || !label) return;
+      if (!seen.has(id)) seen.set(id, label);
     });
-    try {
-      const payload = await fetchJson(`${getAppApiBase()}/api/GetRecordsForFields?${params.toString()}`, signal);
-      const rows = normalizeRecords(payload);
-      const options = rows
-        .map((row) => {
-          const id = String(row.RecordID || row.ID || "").trim();
-          const label = String(row[labelField] || "").trim();
-          if (!id || !label) return null;
-          return { label, rawValue: `${id};#${label}` };
-        })
-        .filter(Boolean);
-      state.lookupOptionsCache[cacheKey] = options;
-      return options;
-    } catch (_error) {
-      return [];
-    }
+    return Array.from(seen.entries())
+      .map(([id, label]) => ({ label, rawValue: `${id};#${label}` }))
+      .sort((a, b) => a.label.localeCompare(b.label));
   }
 
   function getRecordFieldEntry(record, columnKey) {
@@ -3835,60 +3816,27 @@
     return safeId || safeLabel;
   }
 
-  async function fetchCategoryPrefillRows() {
-    if (Array.isArray(state.categoryPrefillRows)) return state.categoryPrefillRows;
-    if (categoryPrefillRowsPromise) return categoryPrefillRowsPromise;
-
-    categoryPrefillRowsPromise = (async () => {
-      const qaf = getQafService();
-      if (!qaf || typeof qaf.GetItems !== "function") {
-        state.categoryPrefillRows = [];
-        return state.categoryPrefillRows;
-      }
-      try {
-        const payload = await qaf.GetItems(
-          "EAsset_Category",
-          ["RecordID", "CategoryName"],
-          100000,
-          1,
-          "",
-          "",
-          true
-        );
-        state.categoryPrefillRows = normalizeRecords(payload);
-      } catch (_e) {
-        state.categoryPrefillRows = [];
-      }
-      return state.categoryPrefillRows;
-    })().finally(() => {
-      categoryPrefillRowsPromise = null;
-    });
-
-    return categoryPrefillRowsPromise;
-  }
-
-  async function fetchTypePrefillRows() {
-    if (Array.isArray(state.typePrefillRows)) return state.typePrefillRows;
-    if (typePrefillRowsPromise) return typePrefillRowsPromise;
-
-    typePrefillRowsPromise = (async () => {
-      const qaf = getQafService();
-      if (!qaf || typeof qaf.GetItems !== "function") {
-        state.typePrefillRows = [];
-        return state.typePrefillRows;
-      }
-      try {
-        const payload = await qaf.GetItems("EAsset_Type", ["RecordID", "Name"], 100000, 1, "", "", true);
-        state.typePrefillRows = normalizeRecords(payload);
-      } catch (_e) {
-        state.typePrefillRows = [];
-      }
-      return state.typePrefillRows;
-    })().finally(() => {
-      typePrefillRowsPromise = null;
-    });
-
-    return typePrefillRowsPromise;
+  /**
+   * Finds a lookup field's GUID+label pair by name among the asset rows already fetched via
+   * `api/rnsp` (state.rawRowsByRecordKey carries the raw, unstripped "GUID;#Label" values).
+   * Used to resolve a route's Category/Type when the URL only supplied a name, without a
+   * separate GetRecordsForFields/GetItems('EAsset_Category'|'EAsset_Type', ...) call.
+   */
+  function findLookupIdLabelFromLoadedRows(internalFieldName, nameKey) {
+    if (!nameKey) return null;
+    const rawRows = Object.values(state.rawRowsByRecordKey || {});
+    for (let i = 0; i < rawRows.length; i += 1) {
+      const merged = mergeRecordFieldValuesIntoRow(rawRows[i]);
+      const raw = merged ? merged[internalFieldName] : undefined;
+      if (raw == null) continue;
+      const text = String(raw).trim();
+      if (!text) continue;
+      const id = parseLookupId(text);
+      const label = parseLookupLabel(text);
+      if (!id || !label) continue;
+      if (normalizeCategoryToken(label) === nameKey) return { id, label };
+    }
+    return null;
   }
 
   async function resolveCategoryIdAndLabelForPrefill(categoryId, categoryLabel) {
@@ -3896,25 +3844,12 @@
     let label = String(categoryLabel || "").trim();
     const nameKey = normalizeCategoryToken(label);
 
-    const rows = await fetchCategoryPrefillRows();
-    if (rows.length) {
-      try {
-        for (let i = 0; i < rows.length; i += 1) {
-          const row = rows[i] || {};
-          const rowId = String(row.RecordID || "").trim();
-          const rowName = String(row.CategoryName || "").trim();
-          if (isGuid(id) && rowId === id) {
-            if (!label) label = rowName;
-            return { categoryId: id, categoryLabel: label || rowName };
-          }
-          if (nameKey && normalizeCategoryToken(rowName) === nameKey) {
-            id = rowId;
-            label = rowName;
-            break;
-          }
-        }
-      } catch (_e) {
-        // Fall through with route values.
+    if (isGuid(id)) return { categoryId: id, categoryLabel: label };
+    if (nameKey) {
+      const match = findLookupIdLabelFromLoadedRows("Category", nameKey);
+      if (match) {
+        id = match.id;
+        label = match.label;
       }
     }
 
@@ -3926,40 +3861,12 @@
     let label = String(typeLabel || "").trim();
     const nameKey = normalizeCategoryToken(label);
 
-    const rows = await fetchTypePrefillRows();
-    if (rows.length) {
-      try {
-        for (let i = 0; i < rows.length; i += 1) {
-          const row = rows[i] || {};
-          const rowId = String(row.RecordID || "").trim();
-          const rowName = String(row.Name || "").trim();
-          if (isGuid(id) && rowId === id) {
-            if (!label) label = rowName;
-            return { typeId: id, typeLabel: label || rowName };
-          }
-          if (!nameKey) continue;
-          if (normalizeCategoryToken(rowName) !== nameKey) continue;
-          id = rowId;
-          label = rowName;
-          break;
-        }
-      } catch (_e) {
-        // Fall through to row inference.
-      }
-    }
-
     if (isGuid(id)) return { typeId: id, typeLabel: label };
-    if (!nameKey) return { typeId: id, typeLabel: label };
-
-    if (!isGuid(id) && Array.isArray(state.apiRows)) {
-      for (let i = 0; i < state.apiRows.length; i += 1) {
-        const row = state.apiRows[i] || {};
-        const rawType = String(row.Type || row.type || "").trim();
-        if (!rawType) continue;
-        if (normalizeCategoryToken(parseLookupLabel(rawType)) !== nameKey) continue;
-        id = parseLookupId(rawType);
-        label = parseLookupLabel(rawType) || label;
-        if (isGuid(id)) break;
+    if (nameKey) {
+      const match = findLookupIdLabelFromLoadedRows("Type", nameKey);
+      if (match) {
+        id = match.id;
+        label = match.label;
       }
     }
 
@@ -8224,7 +8131,7 @@
     }
     const meta = getFieldMetaForColumnKey(columnKey);
     if (isLookupField(meta)) {
-      const lookupOptions = await fetchLookupOptionsForMeta(meta, signal);
+      const lookupOptions = fetchLookupOptionsForMeta(meta);
       const { editor, labelToRaw } = buildLookupSelect(columnKey, currentDisplayValue, lookupOptions);
       return { editor, labelToRaw };
     }
