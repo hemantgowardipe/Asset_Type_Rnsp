@@ -2848,7 +2848,7 @@
         const rawStatus = String(item.ItemStatus || "Unknown");
         const displayStatus = rawStatus === "GrossTotal" ? "Total" : rawStatus;
         const label = escapeHtml(displayStatus);
-        const total = Number(item.TotalNumber || 0).toLocaleString();
+        const total = String(Number(item.TotalNumber || 0));
         const isActive =
           !!state.selectedStatus &&
           normalizeStatusToken(rawStatus) === normalizeStatusToken(state.selectedStatus);
