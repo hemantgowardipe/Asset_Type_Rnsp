@@ -10,6 +10,19 @@
   const ASSET_LIST_RNSP_NAME = "ASSET_TYPE_EASSET_MASTER";
   /** Item-status summary counts (the "Summary" cards) come from this `api/rnsp` stored-query name instead of the legacy `api/Sroa` endpoint. */
   const ITEM_STATUS_RNSP_NAME = "ASSET_TYPE_ITEMSTATUS_FILTER";
+  /**
+   * Inline-edit lookup dropdown options (Type/Category/Vendor/Department) come from this
+   * no-Args `api/rnsp` stored-query, fetched lazily on first double-tap of any of those cells
+   * and cached for the rest of the session - see fetchDoubleTapLookupData().
+   */
+  const DOUBLETAP_DATA_RNSP_NAME = "ASSET_TYPE_DOUBLETAP_DATA";
+  /** Maps this workflow's DataType buckets to the asset field's internal (schema) name. */
+  const DOUBLETAP_DATATYPE_TO_INTERNAL_NAME = {
+    AssetType: "Type",
+    Category: "Category",
+    Vendor: "VendorID",
+    Department: "Department"
+  };
 
   function getAppApiBase() {
     try {
@@ -2333,20 +2346,80 @@
     });
   }
 
+  let doubleTapLookupDataPromise = null;
+  let doubleTapLookupDataCache = null;
+
   /**
-   * Lookup dropdown options (Category, Type, or any other lookup-type column) for inline cell
-   * editing. Previously fetched fresh via `api/GetRecordsForFields` against the lookup's target
-   * object (e.g. EAsset_Category/EAsset_Type) with pageSize=100000. That's no longer needed: the
-   * asset rows already fetched via `api/rnsp` (state.rawRowsByRecordKey) carry each lookup
-   * field's `"GUID;#Label"` value directly, so the distinct options are derived from data already
-   * in memory - no extra network call. This only surfaces values that appear on at least one
-   * already-loaded asset (rather than every value that has ever existed for that lookup), which
-   * matches what's actually addressable/relevant on this Category+Type-scoped asset list.
+   * Fetches Type/Category/Vendor/Department dropdown options from the no-Args
+   * `ASSET_TYPE_DOUBLETAP_DATA` workflow. Lazy: only called the first time a user double-taps
+   * one of those four cells to edit it (see fetchLookupOptionsForMeta below), never on page
+   * load. Single-flight + cached on success so every subsequent double-tap across any of the
+   * four fields reuses the same result instead of re-fetching. Values come back as plain
+   * strings (no GUID), so options use the label itself as the raw/save value - the same
+   * fallback this app already uses for any lookup value it doesn't have an id for.
    */
-  function fetchLookupOptionsForMeta(meta) {
+  async function fetchDoubleTapLookupData(signal) {
+    if (doubleTapLookupDataCache) return doubleTapLookupDataCache;
+    if (doubleTapLookupDataPromise) return doubleTapLookupDataPromise;
+
+    doubleTapLookupDataPromise = (async () => {
+      try {
+        const payload = await postJson(`${getAppApiBase()}/api/rnsp`, { Name: DOUBLETAP_DATA_RNSP_NAME }, signal);
+        const rows = normalizeRecords(payload);
+        const grouped = { AssetType: new Set(), Category: new Set(), Vendor: new Set(), Department: new Set() };
+        rows.forEach((row) => {
+          const dataType = String(row && row.DataType != null ? row.DataType : "").trim();
+          const value = String(row && row.Value != null ? row.Value : "").trim();
+          if (!dataType || !value || !grouped[dataType]) return;
+          grouped[dataType].add(value);
+        });
+        const result = {
+          AssetType: Array.from(grouped.AssetType),
+          Category: Array.from(grouped.Category),
+          Vendor: Array.from(grouped.Vendor),
+          Department: Array.from(grouped.Department)
+        };
+        doubleTapLookupDataCache = result;
+        return result;
+      } catch (error) {
+        if (error && error.name === "AbortError") throw error;
+        console.error("ASSET_TYPE_DOUBLETAP_DATA fetch failed:", error);
+        // Not cached - a later double-tap gets a fresh retry rather than being stuck empty.
+        return { AssetType: [], Category: [], Vendor: [], Department: [] };
+      }
+    })();
+
+    try {
+      return await doubleTapLookupDataPromise;
+    } finally {
+      doubleTapLookupDataPromise = null;
+    }
+  }
+
+  /**
+   * Lookup dropdown options for inline cell editing. Type/Category/VendorID/Department are
+   * sourced from `ASSET_TYPE_DOUBLETAP_DATA` (the complete, dynamic value list for those four
+   * fields). Any other lookup-type column (e.g. Location, Project - not covered by that
+   * workflow) still derives its options from the asset rows already fetched via `api/rnsp`
+   * (state.rawRowsByRecordKey carries each lookup field's `"GUID;#Label"` value directly), which
+   * only surfaces values that appear on at least one already-loaded asset.
+   */
+  async function fetchLookupOptionsForMeta(meta, signal) {
     if (!meta || !isLookupField(meta)) return [];
     const internalName = String(meta.internalName || "").trim();
     if (!internalName) return [];
+
+    const doubleTapKey = Object.keys(DOUBLETAP_DATATYPE_TO_INTERNAL_NAME).find(
+      (key) => DOUBLETAP_DATATYPE_TO_INTERNAL_NAME[key] === internalName
+    );
+    if (doubleTapKey) {
+      const data = await fetchDoubleTapLookupData(signal);
+      const values = data && Array.isArray(data[doubleTapKey]) ? data[doubleTapKey] : [];
+      return values
+        .map((value) => ({ label: value, rawValue: value }))
+        .sort((a, b) => a.label.localeCompare(b.label));
+    }
+
     const rawRows = Object.values(state.rawRowsByRecordKey || {});
     const seen = new Map();
     rawRows.forEach((row) => {
@@ -8129,7 +8202,7 @@
     }
     const meta = getFieldMetaForColumnKey(columnKey);
     if (isLookupField(meta)) {
-      const lookupOptions = fetchLookupOptionsForMeta(meta);
+      const lookupOptions = await fetchLookupOptionsForMeta(meta, signal);
       const { editor, labelToRaw } = buildLookupSelect(columnKey, currentDisplayValue, lookupOptions);
       return { editor, labelToRaw };
     }
