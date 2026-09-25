@@ -10,6 +10,8 @@
   const ASSET_LIST_RNSP_NAME = "ASSET_TYPE_EASSET_MASTER";
   /** Item-status summary counts (the "Summary" cards) come from this `api/rnsp` stored-query name instead of the legacy `api/Sroa` endpoint. */
   const ITEM_STATUS_RNSP_NAME = "ASSET_TYPE_ITEMSTATUS_FILTER";
+  /** Inline cell edits are saved via this `api/rnsp` stored-query instead of `api/UpdateRecord` - Args: RecordID, FieldName, FieldValue. See updateEAssetMasterField(). */
+  const EASSET_MASTER_UPDATE_RNSP_NAME = "ASSET_TYPE_EASSET_MASTER_DOUBLETAP_UPDATE";
   /**
    * Inline-edit lookup dropdown options (Type/Category/Vendor/Department/Employee/Team) come
    * from this no-Args `api/rnsp` stored-query, fetched lazily on first double-tap of any of
@@ -2308,15 +2310,6 @@
     return null;
   }
 
-  function cloneRecordForUpdate(record) {
-    return {
-      ...record,
-      RecordFieldValues: Array.isArray(record && record.RecordFieldValues)
-        ? record.RecordFieldValues.map((entry) => ({ ...entry }))
-        : []
-    };
-  }
-
   function getInternalNameForColumnKey(columnKey) {
     return COLUMN_KEY_TO_INTERNAL_NAME[columnKey] || columnKey;
   }
@@ -2376,8 +2369,9 @@
    * fetchLookupOptionsForMeta/buildEditorForCell below), never on page load. Single-flight +
    * cached on success so every subsequent double-tap across any mapped field reuses the same
    * result instead of re-fetching - this workflow is called at most once per session. Values come
-   * back as plain strings (no GUID), so options use the label itself as the raw/save value - the
-   * same fallback this app already uses for any lookup value it doesn't have an id for.
+   * back in the standard QAF `"GUID;#Label"` lookup format (or plain text for a bucket that has
+   * none); grouping here keeps each raw value completely unmodified - buildOptionsFromDoubleTapBucket
+   * is what splits it into a GUID-stripped display label and the untouched raw/save value.
    */
   async function fetchDoubleTapLookupData(signal) {
     if (doubleTapLookupDataCache) return doubleTapLookupDataCache;
@@ -2416,11 +2410,11 @@
     }
   }
 
-  /** Turns one DataType bucket's plain-string values into sorted {label, rawValue} options (rawValue = label, since this workflow returns no id). */
+  /** Turns one DataType bucket's `"GUID;#Label"` (or plain-text) values into sorted {label, rawValue} options: label is the GUID-stripped display text, rawValue is the untouched original string sent back to the update workflow. */
   function buildOptionsFromDoubleTapBucket(data, dataType) {
     const values = data && Array.isArray(data[dataType]) ? data[dataType] : [];
     return values
-      .map((value) => ({ label: value, rawValue: value }))
+      .map((value) => ({ label: parseLookupLabel(value), rawValue: value }))
       .sort((a, b) => a.label.localeCompare(b.label));
   }
 
@@ -2656,78 +2650,65 @@
     return true;
   }
 
-  async function fetchMasterRecordForInlineEdit(recordId, signal) {
-    const rid = String(recordId || "").trim();
-    if (!rid) return null;
-    const objectNames = [MASTER_LIST_OBJECT_NAME];
-    const fields = [...new Set([...MERGE_KEY_FIELDS, ...getActiveFieldList()])];
-    const base = {
-      fieldList: fields.join(","),
-      orderBy: "",
-      whereClause: `RecordID='${escapeClauseValue(rid)}'`,
-      pageSize: "1",
-      pageNumber: "1",
-      isAscending: "true"
+  /**
+   * Resolves the exact key used to read/write this column's value on a raw `api/rnsp` row,
+   * mirroring formatRow's own key-resolution order (columnKey first, then the
+   * COLUMN_KEY_TO_INTERNAL_NAME remap only as a fallback) so the field name we send to
+   * ASSET_TYPE_EASSET_MASTER_DOUBLETAP_UPDATE always matches what we actually read the value
+   * from. This matters because that remap table renames a few fields for older display/lookup
+   * purposes (e.g. AssetManager -> "Asset Manager") which is NOT the real EAsset_Master column.
+   */
+  function getEditableFieldNameForColumn(columnKey, rawRow) {
+    const internalFromMap = getInternalNameForColumnKey(columnKey);
+    const candidates = [columnKey, internalFromMap !== columnKey ? internalFromMap : ""].filter(Boolean);
+    for (let i = 0; i < candidates.length; i += 1) {
+      if (rawRow && Object.prototype.hasOwnProperty.call(rawRow, candidates[i])) return candidates[i];
+    }
+    return columnKey;
+  }
+
+  /** Saves one field via `api/rnsp` (ASSET_TYPE_EASSET_MASTER_DOUBLETAP_UPDATE) instead of api/UpdateRecord. */
+  async function updateEAssetMasterField(recordID, fieldName, fieldValue, signal) {
+    const payload = {
+      Name: EASSET_MASTER_UPDATE_RNSP_NAME,
+      Args: {
+        RecordID: String(recordID || ""),
+        FieldName: String(fieldName || ""),
+        FieldValue: fieldValue == null ? "" : String(fieldValue)
+      }
     };
-    for (let i = 0; i < objectNames.length; i += 1) {
-      const params = new URLSearchParams({ ...base, objectName: objectNames[i] });
-      try {
-        const payload = await fetchJson(`${getAppApiBase()}/api/GetRecordsForFields?${params.toString()}`, signal);
-        const rows = normalizeRecords(payload);
-        if (rows.length) return rows[0];
-      } catch (_e) {
-        /* try next object name */
-      }
+    const result = await postJson(`${getAppApiBase()}/api/rnsp`, payload, signal);
+    const ok =
+      result === true ||
+      String(result).trim().toLowerCase() === "true" ||
+      (result && typeof result === "object" && (result.Success === true || result.success === true));
+    if (!ok) {
+      throw new Error("Record update failed.");
     }
-    return null;
   }
 
-  async function getEditableRecordByKey(recordKey, signal) {
-    const cached = state.rawRowsByRecordKey[recordKey];
-    const recordIDFromCache = getRecordIDFromRow(cached);
-    if (recordIDFromCache && Array.isArray(cached.RecordFieldValues) && cached.RecordFieldValues.length) {
-      return cached;
-    }
-    const recordID =
-      recordIDFromCache ||
-      String(recordKey || "").replace(/^RecordID:/i, "").trim() ||
-      "";
-    if (recordID) {
-      const fetched = await fetchMasterRecordForInlineEdit(recordID, signal);
-      if (fetched) {
-        const key = getRecordKeyFromRow(fetched) || recordKey;
-        state.rawRowsByRecordKey[key] = fetched;
-        return fetched;
+  /**
+   * After a successful save, patch state locally instead of doing a full reload: re-checks the
+   * edited row against the current Category/Type/status/search filters (using the value we just
+   * saved) and either removes it from view (it no longer belongs on this filtered page) or
+   * refreshes its displayed row in place - then re-renders from local state only, no network call.
+   */
+  function applyLocalRowUpdateAfterSave(recordKey, rawRow) {
+    const effectiveStatus = state.selectedStatus === "GrossTotal" ? "" : state.selectedStatus;
+    const stillMatches = rawRow && filterAssetRowsForRoute([rawRow], effectiveStatus).length > 0;
+    if (!stillMatches) {
+      delete state.rawRowsByRecordKey[recordKey];
+      state.apiRows = state.apiRows.filter((row) => row.__recordKey !== recordKey);
+    } else {
+      const formatted = formatRow(rawRow, state.employeesMap);
+      const idx = state.apiRows.findIndex((row) => row.__recordKey === recordKey);
+      if (idx !== -1) {
+        state.apiRows[idx] = formatted;
+      } else {
+        state.apiRows.push(formatted);
       }
     }
-    return cached || null;
-  }
-
-  function setRecordFieldValue(record, columnKey, nextRawValue) {
-    const meta = getFieldMetaForColumnKey(columnKey);
-    if (!meta) throw new Error(`Field metadata missing for ${columnKey}`);
-    if (!Array.isArray(record.RecordFieldValues)) {
-      record.RecordFieldValues = [];
-    }
-    let entry = getRecordFieldEntry(record, columnKey);
-    if (!entry) {
-      entry = {
-        FieldID: meta.fieldID,
-        FieldInternalName: meta.internalName || getInternalNameForColumnKey(columnKey),
-        FieldValue: "",
-        UGFieldValue: ""
-      };
-      record.RecordFieldValues.push(entry);
-    }
-    entry.FieldID = entry.FieldID || meta.fieldID;
-    entry.FieldInternalName = entry.FieldInternalName || meta.internalName || getInternalNameForColumnKey(columnKey);
-    entry.FieldValue = nextRawValue;
-    if (Object.prototype.hasOwnProperty.call(entry, "UGFieldValue")) {
-      entry.UGFieldValue = nextRawValue;
-    }
-    if (Object.prototype.hasOwnProperty.call(entry, "UGFfieldValue")) {
-      entry.UGFfieldValue = nextRawValue;
-    }
+    rebuildAllRows();
   }
 
   function updateFormattedRowsAfterSave(recordKey, columnKey, nextDisplayValue, nextSortValue) {
@@ -8199,31 +8180,32 @@
   }
 
   async function saveInlineCellEdit(recordKey, columnKey, displayValue, labelToRaw, signal) {
-    const editableRecord = await getEditableRecordByKey(recordKey, signal);
-    if (!editableRecord) {
-      throw new Error("Unable to load record for editing.");
+    const rawRow = state.rawRowsByRecordKey[recordKey];
+    if (!rawRow) {
+      throw new Error("Unable to locate the record being edited.");
     }
-    const meta = getFieldMetaForColumnKey(columnKey);
-    if (!meta) {
-      throw new Error(`Field metadata missing for ${columnKey}.`);
+    const recordID = getRecordIDFromRow(rawRow) || getRecordIdFromRecordKey(recordKey);
+    if (!recordID) {
+      throw new Error("Unable to determine the record ID for this update.");
     }
+
     const finalDisplay = String(displayValue || "").trim();
     validateInlineValue(columnKey, finalDisplay);
     const nextRawValue = labelToRaw && finalDisplay ? labelToRaw[finalDisplay] || finalDisplay : finalDisplay;
+    const nextRawValueText = String(nextRawValue == null ? "" : nextRawValue).trim();
 
-    const payload = cloneRecordForUpdate(editableRecord);
-    setRecordFieldValue(payload, columnKey, nextRawValue);
-    const objectID = await getMasterObjectId(signal);
-    payload.RecordID = payload.RecordID || getRecordIDFromRow(payload);
-    payload.ObjectID = payload.ObjectID || payload.ObjectId || objectID;
-    payload.ObjectId = payload.ObjectId || payload.ObjectID;
+    const fieldName = getEditableFieldNameForColumn(columnKey, rawRow);
+    const previousRawValueText = String(rawRow[fieldName] == null ? "" : rawRow[fieldName]).trim();
 
-    const saveResult = await postJson(`${getAppApiBase()}/api/UpdateRecord`, payload, signal);
-    if (!(saveResult === true || String(saveResult).toLowerCase() === "true")) {
-      throw new Error("Record update failed.");
+    // Only call the update workflow when the value actually changed.
+    if (previousRawValueText !== nextRawValueText) {
+      await updateEAssetMasterField(recordID, fieldName, nextRawValueText, signal);
+      rawRow[fieldName] = nextRawValueText;
+      state.rawRowsByRecordKey[recordKey] = rawRow;
     }
 
-    await refreshAssetDataAfterSave();
+    // Patch local state and re-render instead of a full reload - no page flash, position preserved.
+    applyLocalRowUpdateAfterSave(recordKey, rawRow);
   }
 
   async function startInlineEdit(td) {
@@ -8257,6 +8239,7 @@
     const commit = async () => {
       if (isClosing) return;
       isClosing = true;
+      editor.disabled = true;
       try {
         const nextDisplayValue = editor.value;
         await saveInlineCellEdit(recordKey, columnKey, nextDisplayValue, labelToRaw, state.sessionAbort && state.sessionAbort.signal);
