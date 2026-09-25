@@ -11,17 +11,31 @@
   /** Item-status summary counts (the "Summary" cards) come from this `api/rnsp` stored-query name instead of the legacy `api/Sroa` endpoint. */
   const ITEM_STATUS_RNSP_NAME = "ASSET_TYPE_ITEMSTATUS_FILTER";
   /**
-   * Inline-edit lookup dropdown options (Type/Category/Vendor/Department) come from this
-   * no-Args `api/rnsp` stored-query, fetched lazily on first double-tap of any of those cells
-   * and cached for the rest of the session - see fetchDoubleTapLookupData().
+   * Inline-edit lookup dropdown options (Type/Category/Vendor/Department/Employee/Team) come
+   * from this no-Args `api/rnsp` stored-query, fetched lazily on first double-tap of any of
+   * those cells and cached for the rest of the session - see fetchDoubleTapLookupData().
    */
   const DOUBLETAP_DATA_RNSP_NAME = "ASSET_TYPE_DOUBLETAP_DATA";
-  /** Maps this workflow's DataType buckets to the asset field's internal (schema) name. */
-  const DOUBLETAP_DATATYPE_TO_INTERNAL_NAME = {
-    AssetType: "Type",
-    Category: "Category",
-    Vendor: "VendorID",
-    Department: "Department"
+  /**
+   * Maps each asset field's internal (schema) name to the workflow's DataType bucket it should
+   * draw its dropdown options from. Several fields share one bucket (e.g. AssignedTo,
+   * AssetManager, SupportedBy and ManagedBy all use the same Employee list; AssignedToGroup,
+   * SupportedByGroup and ManagedByGroup all use the same Team list) - the workflow is still only
+   * ever called once.
+   */
+  const DOUBLETAP_FIELD_DATATYPE = {
+    type: "AssetType",
+    category: "Category",
+    vendorid: "Vendor",
+    department: "Department",
+    location: "Location",
+    assignedto: "Employee",
+    assetmanager: "Employee",
+    supportedby: "Employee",
+    managedby: "Employee",
+    assignedtogroup: "Team",
+    supportedbygroup: "Team",
+    managedbygroup: "Team"
   };
 
   function getAppApiBase() {
@@ -2346,17 +2360,24 @@
     });
   }
 
+  /** Looks up DOUBLETAP_FIELD_DATATYPE by normalized field name, so remaps like AssetManager -> "Asset Manager" (see COLUMN_KEY_TO_INTERNAL_NAME) still resolve correctly. */
+  function getDoubleTapDataTypeForInternalName(internalName) {
+    return DOUBLETAP_FIELD_DATATYPE[normalizeLooseFieldName(internalName)];
+  }
+
   let doubleTapLookupDataPromise = null;
   let doubleTapLookupDataCache = null;
 
   /**
-   * Fetches Type/Category/Vendor/Department dropdown options from the no-Args
-   * `ASSET_TYPE_DOUBLETAP_DATA` workflow. Lazy: only called the first time a user double-taps
-   * one of those four cells to edit it (see fetchLookupOptionsForMeta below), never on page
-   * load. Single-flight + cached on success so every subsequent double-tap across any of the
-   * four fields reuses the same result instead of re-fetching. Values come back as plain
-   * strings (no GUID), so options use the label itself as the raw/save value - the same
-   * fallback this app already uses for any lookup value it doesn't have an id for.
+   * Fetches inline-edit dropdown options from the no-Args `ASSET_TYPE_DOUBLETAP_DATA` workflow,
+   * grouped dynamically by whatever `DataType` buckets the response actually contains (currently
+   * AssetType/Category/Vendor/Department/Employee/Team, but nothing here assumes that fixed set).
+   * Lazy: only called the first time a user double-taps one of the mapped cells to edit it (see
+   * fetchLookupOptionsForMeta/buildEditorForCell below), never on page load. Single-flight +
+   * cached on success so every subsequent double-tap across any mapped field reuses the same
+   * result instead of re-fetching - this workflow is called at most once per session. Values come
+   * back as plain strings (no GUID), so options use the label itself as the raw/save value - the
+   * same fallback this app already uses for any lookup value it doesn't have an id for.
    */
   async function fetchDoubleTapLookupData(signal) {
     if (doubleTapLookupDataCache) return doubleTapLookupDataCache;
@@ -2366,26 +2387,25 @@
       try {
         const payload = await postJson(`${getAppApiBase()}/api/rnsp`, { Name: DOUBLETAP_DATA_RNSP_NAME }, signal);
         const rows = normalizeRecords(payload);
-        const grouped = { AssetType: new Set(), Category: new Set(), Vendor: new Set(), Department: new Set() };
+        const grouped = {};
         rows.forEach((row) => {
           const dataType = String(row && row.DataType != null ? row.DataType : "").trim();
           const value = String(row && row.Value != null ? row.Value : "").trim();
-          if (!dataType || !value || !grouped[dataType]) return;
+          if (!dataType || !value) return;
+          if (!grouped[dataType]) grouped[dataType] = new Set();
           grouped[dataType].add(value);
         });
-        const result = {
-          AssetType: Array.from(grouped.AssetType),
-          Category: Array.from(grouped.Category),
-          Vendor: Array.from(grouped.Vendor),
-          Department: Array.from(grouped.Department)
-        };
+        const result = {};
+        Object.keys(grouped).forEach((key) => {
+          result[key] = Array.from(grouped[key]);
+        });
         doubleTapLookupDataCache = result;
         return result;
       } catch (error) {
         if (error && error.name === "AbortError") throw error;
         console.error("ASSET_TYPE_DOUBLETAP_DATA fetch failed:", error);
         // Not cached - a later double-tap gets a fresh retry rather than being stuck empty.
-        return { AssetType: [], Category: [], Vendor: [], Department: [] };
+        return {};
       }
     })();
 
@@ -2396,11 +2416,21 @@
     }
   }
 
+  /** Turns one DataType bucket's plain-string values into sorted {label, rawValue} options (rawValue = label, since this workflow returns no id). */
+  function buildOptionsFromDoubleTapBucket(data, dataType) {
+    const values = data && Array.isArray(data[dataType]) ? data[dataType] : [];
+    return values
+      .map((value) => ({ label: value, rawValue: value }))
+      .sort((a, b) => a.label.localeCompare(b.label));
+  }
+
   /**
    * Lookup dropdown options for inline cell editing. Type/Category/VendorID/Department are
    * sourced from `ASSET_TYPE_DOUBLETAP_DATA` (the complete, dynamic value list for those four
-   * fields). Any other lookup-type column (e.g. Location, Project - not covered by that
-   * workflow) still derives its options from the asset rows already fetched via `api/rnsp`
+   * fields; AssignedTo/AssetManager/SupportedBy/ManagedBy/SupportedByGroup/ManagedByGroup are
+   * handled separately in buildEditorForCell, since they don't go through isLookupField). Any
+   * other lookup-type column (e.g. Location, Project - not covered by that workflow) still
+   * derives its options from the asset rows already fetched via `api/rnsp`
    * (state.rawRowsByRecordKey carries each lookup field's `"GUID;#Label"` value directly), which
    * only surfaces values that appear on at least one already-loaded asset.
    */
@@ -2409,15 +2439,10 @@
     const internalName = String(meta.internalName || "").trim();
     if (!internalName) return [];
 
-    const doubleTapKey = Object.keys(DOUBLETAP_DATATYPE_TO_INTERNAL_NAME).find(
-      (key) => DOUBLETAP_DATATYPE_TO_INTERNAL_NAME[key] === internalName
-    );
-    if (doubleTapKey) {
+    const dataType = getDoubleTapDataTypeForInternalName(internalName);
+    if (dataType) {
       const data = await fetchDoubleTapLookupData(signal);
-      const values = data && Array.isArray(data[doubleTapKey]) ? data[doubleTapKey] : [];
-      return values
-        .map((value) => ({ label: value, rawValue: value }))
-        .sort((a, b) => a.label.localeCompare(b.label));
+      return buildOptionsFromDoubleTapBucket(data, dataType);
     }
 
     const rawRows = Object.values(state.rawRowsByRecordKey || {});
@@ -8086,34 +8111,6 @@
     state.activeEditCell = null;
   }
 
-  async function fetchQafUsersForAssignEditor(signal) {
-    const qaf = window.QafService;
-    const fieldList = ["RecordID", "FirstName", "LastName"];
-    if (qaf && typeof qaf.GetItems === "function") {
-      try {
-        const payload = await qaf.GetItems("QAF_Users", fieldList, 500, 1, "", "", true);
-        return normalizeQafGetItemsRows(payload);
-      } catch (_e) {
-        /* REST fallback */
-      }
-    }
-    const params = new URLSearchParams({
-      objectName: "QAF_Users",
-      fieldList: "RecordID,FirstName,LastName",
-      orderBy: "",
-      whereClause: "",
-      pageSize: "500",
-      pageNumber: "1",
-      isAscending: "true"
-    });
-    try {
-      const payload = await fetchJson(`${getAppApiBase()}/api/GetRecordsForFields?${params.toString()}`, signal);
-      return normalizeRecords(payload);
-    } catch (_e) {
-      return [];
-    }
-  }
-
   function buildLookupSelect(columnKey, currentDisplayValue, lookupOptions) {
     const select = document.createElement("select");
     select.className = "inline-cell-input";
@@ -8145,34 +8142,6 @@
     return { editor: select, labelToRaw };
   }
 
-  function buildAssignToUserSelect(currentDisplayValue, users) {
-    const select = document.createElement("select");
-    select.className = "inline-cell-input";
-    const labelToRaw = {};
-    const rows = Array.isArray(users) ? users : [];
-    rows.forEach((row) => {
-      const id = String(row.RecordID || "").trim();
-      if (!id) return;
-      const label = `${row.FirstName || ""} ${row.LastName || ""}`.trim() || id;
-      labelToRaw[label] = JSON.stringify([{ UserType: 1, RecordID: id }]);
-    });
-    const labels = Object.keys(labelToRaw).sort((a, b) =>
-      a.localeCompare(b, undefined, { sensitivity: "base" })
-    );
-    if (currentDisplayValue && !labelToRaw[currentDisplayValue]) {
-      labels.unshift(currentDisplayValue);
-      labelToRaw[currentDisplayValue] = "";
-    }
-    labels.forEach((label) => {
-      const option = document.createElement("option");
-      option.value = label;
-      option.textContent = label;
-      select.appendChild(option);
-    });
-    select.value = currentDisplayValue || "";
-    return { editor: select, labelToRaw };
-  }
-
   function normalizeDateInputValue(value) {
     const text = String(value || "").trim();
     if (!text) return "";
@@ -8191,14 +8160,14 @@
     return `${yyyy}-${mm}-${dd}`;
   }
 
-  function isAssignToColumnKey(columnKey) {
-    return normalizeLooseFieldName(columnKey) === "assignedto";
-  }
-
   async function buildEditorForCell(columnKey, currentDisplayValue, signal) {
-    if (isAssignToColumnKey(columnKey)) {
-      const users = await fetchQafUsersForAssignEditor(signal);
-      return buildAssignToUserSelect(currentDisplayValue, users);
+    const doubleTapInternalName = getInternalNameForColumnKey(columnKey);
+    const doubleTapDataType = getDoubleTapDataTypeForInternalName(doubleTapInternalName);
+    if (doubleTapDataType === "Employee" || doubleTapDataType === "Team") {
+      const data = await fetchDoubleTapLookupData(signal);
+      const lookupOptions = buildOptionsFromDoubleTapBucket(data, doubleTapDataType);
+      const { editor, labelToRaw } = buildLookupSelect(columnKey, currentDisplayValue, lookupOptions);
+      return { editor, labelToRaw };
     }
     const meta = getFieldMetaForColumnKey(columnKey);
     if (isLookupField(meta)) {
