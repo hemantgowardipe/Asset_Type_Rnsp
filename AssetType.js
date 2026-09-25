@@ -2364,14 +2364,16 @@
   /**
    * Fetches inline-edit dropdown options from the no-Args `ASSET_TYPE_DOUBLETAP_DATA` workflow,
    * grouped dynamically by whatever `DataType` buckets the response actually contains (currently
-   * AssetType/Category/Vendor/Department/Employee/Team, but nothing here assumes that fixed set).
-   * Lazy: only called the first time a user double-taps one of the mapped cells to edit it (see
-   * fetchLookupOptionsForMeta/buildEditorForCell below), never on page load. Single-flight +
-   * cached on success so every subsequent double-tap across any mapped field reuses the same
-   * result instead of re-fetching - this workflow is called at most once per session. Values come
-   * back in the standard QAF `"GUID;#Label"` lookup format (or plain text for a bucket that has
-   * none); grouping here keeps each raw value completely unmodified - buildOptionsFromDoubleTapBucket
-   * is what splits it into a GUID-stripped display label and the untouched raw/save value.
+   * AssetType/Category/Vendor/Department/Employee/Team/Location, but nothing here assumes that
+   * fixed set). Lazy: only called the first time a user double-taps one of the mapped cells to
+   * edit it (see fetchLookupOptionsForMeta/buildEditorForCell below), never on page load.
+   * Single-flight + cached on success so every subsequent double-tap across any mapped field
+   * reuses the same result instead of re-fetching - this workflow is called at most once per
+   * session. Each row carries `Value` (the exact raw value the update workflow needs - a
+   * `"GUID;#Label"` string for most fields, a JSON array string for Employee/Team) and
+   * `DisplayValue` (what the user should see) as two separate fields; `Value` is stored and
+   * returned completely untouched, never split/parsed/reconstructed. `DisplayValue` falls back to
+   * parseLookupLabel(Value) only if the backend ever omits it, so display never breaks.
    */
   async function fetchDoubleTapLookupData(signal) {
     if (doubleTapLookupDataCache) return doubleTapLookupDataCache;
@@ -2384,14 +2386,19 @@
         const grouped = {};
         rows.forEach((row) => {
           const dataType = String(row && row.DataType != null ? row.DataType : "").trim();
-          const value = String(row && row.Value != null ? row.Value : "").trim();
-          if (!dataType || !value) return;
-          if (!grouped[dataType]) grouped[dataType] = new Set();
-          grouped[dataType].add(value);
+          const rawValue = row && row.Value != null ? row.Value : "";
+          const valueKey = String(rawValue).trim();
+          if (!dataType || !valueKey) return;
+          const displayValueRaw = row && row.DisplayValue != null ? row.DisplayValue : "";
+          const displayValue = String(displayValueRaw).trim() || parseLookupLabel(valueKey);
+          if (!grouped[dataType]) grouped[dataType] = new Map();
+          if (!grouped[dataType].has(valueKey)) {
+            grouped[dataType].set(valueKey, { value: rawValue, displayValue });
+          }
         });
         const result = {};
         Object.keys(grouped).forEach((key) => {
-          result[key] = Array.from(grouped[key]);
+          result[key] = Array.from(grouped[key].values());
         });
         doubleTapLookupDataCache = result;
         return result;
@@ -2410,11 +2417,11 @@
     }
   }
 
-  /** Turns one DataType bucket's `"GUID;#Label"` (or plain-text) values into sorted {label, rawValue} options: label is the GUID-stripped display text, rawValue is the untouched original string sent back to the update workflow. */
+  /** Turns one DataType bucket's {value, displayValue} entries into sorted {label, rawValue} options: label is the backend's DisplayValue, rawValue is Value completely untouched (sent as-is to the update workflow). */
   function buildOptionsFromDoubleTapBucket(data, dataType) {
-    const values = data && Array.isArray(data[dataType]) ? data[dataType] : [];
-    return values
-      .map((value) => ({ label: parseLookupLabel(value), rawValue: value }))
+    const entries = data && Array.isArray(data[dataType]) ? data[dataType] : [];
+    return entries
+      .map((entry) => ({ label: entry.displayValue, rawValue: entry.value }))
       .sort((a, b) => a.label.localeCompare(b.label));
   }
 
